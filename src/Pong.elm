@@ -1,27 +1,31 @@
 -- See this document for more information on making Pong:
 -- http://elm-lang.org/blog/Pong.elm
-import Color (..)
-import Graphics.Collage (..)
-import Graphics.Element (..)
+import Color exposing (..)
+import Graphics.Collage exposing (..)
+import Graphics.Element exposing (..)
 import Keyboard
 import Signal
-import Signal (..)
+import Signal exposing (..)
 import Text
 import Char
-import Time (..)
+--import Time exposing (Time, fps, inSeconds)
+import Time exposing (Time, inSeconds)
+import AnimationFrame exposing (frame)
 import Window
 
 -- SIGNALS
 
-main = view <~ Window.dimensions ~ gameState
+main =
+    Signal.map2 view Window.dimensions gameState
 
 gameState : Signal Game
 gameState =
-  Signal.foldp update defaultGame input
+    Signal.foldp update defaultGame input
 
 delta : Signal Float
 delta =
-  Signal.map inSeconds (fps 35)
+    --Signal.map inSeconds (fps 35)
+    Signal.map inSeconds frame
 
 keyPressed : Char -> Signal Bool
 keyPressed key =
@@ -31,11 +35,12 @@ keyPressed key =
 input : Signal Input
 input =
   Signal.sampleOn delta <|
-    Input <~ Keyboard.space
-      ~ (keyPressed 'r')
-      ~ (keyPressed 'p')
-      ~ (Signal.map .y Keyboard.arrows)
-      ~ delta
+    Signal.map5 Input
+        Keyboard.space
+        (keyPressed 'r')
+        (keyPressed 'p')
+        (Signal.map .y Keyboard.arrows)
+        delta
 
 -- MODEL
 
@@ -100,10 +105,12 @@ update {space, reset, pause, dir, delta} ({state, ball, player1, player2} as gam
       score2 = if ball.x < -halfWidth then 1 else 0
 
       newState =
-        if  | space            -> Play
-            | pause            -> Pause
-            | score1 /= score2 -> Pause
-            | otherwise        -> state
+        if space then
+            Play
+        else if score1 /= score2 then
+            Pause
+        else
+            state
 
       newBall =
         if state == Pause
@@ -113,63 +120,64 @@ update {space, reset, pause, dir, delta} ({state, ball, player1, player2} as gam
   in
       if reset
          then defaultGame
-         else { game |
-                  state     <- newState,
-                  ball      <- newBall,
-                  player1   <- updatePlayer delta dir score1 player1,
-                  player2   <- updateComputer newBall score2 player2
+         else { game      |
+                  state   = newState,
+                  ball    = newBall,
+                  player1 = updatePlayer delta dir score1 player1,
+                  player2 = updateComputer newBall score2 player2
               }
 
 updateBall : Time -> Ball -> Player -> Player -> Ball
 updateBall t ({x, y, vx, vy} as ball) p1 p2 =
   if not (ball.x |> near 0 halfWidth)
-    then { ball | x <- 0, y <- 0 }
+    then { ball | x = 0, y = 0 }
     else physicsUpdate t
             { ball |
-                vx <- stepV vx (ball `within` p1) (ball `within` p2),
-                vy <- stepV vy (y < 7-halfHeight) (y > halfHeight-7)
+                vx = stepV vx (ball `within` p1) (ball `within` p2),
+                vy = stepV vy (y < 7-halfHeight) (y > halfHeight-7)
             }
 
 
 updatePlayer : Time -> Int -> Int -> Player -> Player
 updatePlayer t dir points player =
-  let player1 = physicsUpdate  t { player | vy <- toFloat dir * 200 }
+  let player1 = physicsUpdate  t { player | vy = toFloat dir * 200 }
   in
       { player1 |
-          y <- clamp (22 - halfHeight) (halfHeight - 22) player1.y,
-          score <- player.score + points
+          y     = clamp (22 - halfHeight) (halfHeight - 22) player1.y,
+          score = player.score + points
       }
 
 updateComputer : Ball -> Int -> Player -> Player
 updateComputer ball points player =
-    { player |
-        y <- clamp (22 - halfHeight) (halfHeight - 22) ball.y,
-        score <- player.score + points
+    { player  |
+        y     = clamp (22 - halfHeight) (halfHeight - 22) ball.y,
+        score = player.score + points
     }
 
 physicsUpdate t ({x, y, vx, vy} as obj) =
   { obj |
-      x <- x + vx * t,
-      y <- y + vy * t
+      x = x + vx * t,
+      y = y + vy * t
   }
 
 near : Float -> Float -> Float -> Bool
 near k c n =
-    n >= k-c && n <= k+c
+    k - c <= n && n <= k + c
 
 within ball paddle =
     near paddle.x 8 ball.x && near paddle.y 20 ball.y
 
 
 stepV v lowerCollision upperCollision =
-  if | lowerCollision -> abs v
-     | upperCollision -> 0 - abs v
-     | otherwise      -> v
+  if lowerCollision
+    then abs v
+    else if upperCollision then 0 - abs v
+    else v
 
 
 -- VIEW
 
-view : (Int,Int) -> Game -> Element
+view : (Int, Int) -> Game -> Element
 view (w, h) {state, ball, player1, player2} =
   let scores : Element
       scores = txt (Text.height 50) (toString player1.score ++ "  " ++ toString player2.score)
@@ -202,11 +210,18 @@ verticalLine height =
 
 pongGreen = rgb 60 100 60
 textGreen = rgb 160 200 160
-txt f = Text.fromString >> Text.color textGreen >> Text.monospace >> f >> Text.leftAligned
+
+txt f string =
+    Text.fromString string
+        |> Text.color textGreen
+        |> Text.monospace
+        |> f
+        |> leftAligned
+
 pauseMessage = "SPACE to start, P to pause, R to reset, WS and &uarr;&darr; to move"
 
 make obj shape =
     shape
       |> filled white
-      |> move (obj.x,obj.y)
+      |> move (obj.x, obj.y)
 

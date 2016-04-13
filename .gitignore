@@ -1,2 +1,4 @@
+*.iml
+.idea/
 elm-stuff/
 elm.js
